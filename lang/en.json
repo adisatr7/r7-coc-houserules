@@ -1,0 +1,8 @@
+{
+  "r7-coc-houserules": {
+    "tileHover": {
+      "legend": "R7 Tile Interaction",
+      "label": "Highlight on Hover"
+    }
+  }
+}

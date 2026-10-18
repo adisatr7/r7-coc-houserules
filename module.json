@@ -1,0 +1,19 @@
+{
+  "id": "r7-coc-houserules",
+  "title": "R7 CoC Houserules",
+  "description": "Campaign conveniences for Call of Cthulhu. Adds opt-in, client-local Tile hover highlights.",
+  "version": "0.1.0",
+  "authors": [{ "name": "reflection77" }],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.367"
+  },
+  "esmodules": ["scripts/main.mjs"],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ]
+}
