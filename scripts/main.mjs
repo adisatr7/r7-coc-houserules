@@ -26,8 +26,16 @@ Hooks.on("canvasReady", () => {
   listeners = new AbortController();
   const options = { signal: listeners.signal };
 
-  document.addEventListener("pointermove", (event) => hover.handlePointerMove(event), options);
-  canvas.app.view.addEventListener("pointerleave", () => hover.clear(), options);
+  document.addEventListener(
+    "pointermove",
+    (event) => hover.handlePointerMove(event),
+    options,
+  );
+  canvas.app.view.addEventListener(
+    "pointerleave",
+    () => hover.clear(),
+    options,
+  );
   window.addEventListener("blur", () => hover.clear(), options);
   window.addEventListener("pagehide", stopHover, options);
 });
@@ -52,7 +60,13 @@ Hooks.on("deleteTile", (document) => {
   }
 });
 
-for (const hook of ["canvasPan", "sightRefresh", "controlToken", "pauseGame"]) {
+for (const hook of [
+  "canvasPan",
+  "sightRefresh",
+  "visibilityRefresh",
+  "controlToken",
+  "pauseGame",
+]) {
   Hooks.on(hook, () => hover?.requestRefresh());
 }
 

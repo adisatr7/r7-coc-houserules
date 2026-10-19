@@ -27,6 +27,10 @@ class Container {
     child.parent = null;
   }
 
+  destroy() {
+    this.destroyed = true;
+  }
+
   getChildIndex(child) {
     const index = this.children.indexOf(child);
     assert.notEqual(index, -1);
@@ -56,6 +60,11 @@ class Graphics extends Container {
     return this;
   }
 
+  drawPolygon(points) {
+    this.commands.push(["polygon", ...points]);
+    return this;
+  }
+
   drawRoundedRect(...values) {
     this.commands.push(["rectangle", ...values]);
     return this;
@@ -71,12 +80,48 @@ class Graphics extends Container {
   }
 }
 
+function vector(x = 0, y = 0) {
+  return {
+    x,
+    y,
+    copyFrom(other) {
+      Object.assign(this, { x: other.x, y: other.y });
+    },
+  };
+}
+
+class Sprite extends Container {
+  constructor(texture) {
+    super();
+    this.texture = texture;
+
+    for (const property of ["position", "scale", "pivot", "skew", "anchor"]) {
+      this[property] = vector();
+    }
+  }
+
+  destroy(options) {
+    assert.deepEqual(options, { texture: false, baseTexture: false });
+    super.destroy();
+  }
+}
+
+function hoverBorders(context) {
+  return context.controls.children
+    .flatMap((child) => child.children)
+    .filter(
+      (child) =>
+        child instanceof Graphics &&
+        child.commands.some((command) => command[0] === "line"),
+    );
+}
+
 function fixture() {
-  globalThis.PIXI = { Graphics };
+  globalThis.PIXI = { Graphics, Container, Sprite };
   const frames = new Map();
   const primary = new Container();
   const controls = new Container();
-  const scene = {};
+  const scene = { tokenVision: true };
   const game = { user: { isGM: false }, paused: false };
   const canvas = {
     ready: true,
@@ -88,6 +133,7 @@ function fixture() {
     app: { view: { style: { cursor: "crosshair" } } },
     dimensions: { uiScale: 1 },
     canvasCoordinatesFromClient: (point) => point,
+    effects: { visionSources: new Map() },
     visibility: {
       testVisibility: (points, options) => {
         assert.ok(Array.isArray(points));
@@ -98,6 +144,13 @@ function fixture() {
   };
 
   canvas.activeLayer = canvas.tokens;
+
+  canvas.effects.visionSources.set("listener", {
+    active: true,
+    level: canvas.level,
+    los: { points: [0, 0, 500, 0, 500, 500, 0, 500], contains: () => true },
+  });
+
   let serial = 0;
 
   const controller = new TileHoverController(canvas, game, {
@@ -133,6 +186,15 @@ function fixture() {
     };
 
     const mesh = {
+      renderable: true,
+      texture: {},
+      position: vector(100, 100),
+      scale: vector(1, 1),
+      pivot: vector(),
+      skew: vector(),
+      anchor: vector(0.5, 0.5),
+      rotation: 0,
+      tint: 0xffffff,
       alpha: 1,
       visible: true,
       elevation: 0,
@@ -200,7 +262,7 @@ function fixture() {
   };
 }
 
-test("uses exact native door constants, with black BEHIND the original artwork", () => {
+test("uses exact native door constants, with black behind the unlit artwork", () => {
   const context = fixture();
   const tile = context.addTile();
   context.move();
@@ -215,9 +277,11 @@ test("uses exact native door constants, with black BEHIND the original artwork",
     radius: 5,
   });
 
-  const [background, mesh] = context.primary.children;
-  const [border] = context.controls.children;
+  const [background, sprite, border] = context.controller._ui.layer.children;
+  const mesh = context.primary.children[0];
 
+  assert.equal(sprite.texture, mesh.texture);
+  assert.equal(mesh.renderable, false);
   assert.equal(mesh, tile.mesh);
   assert.deepEqual(background.commands, [
     ["fill", 0, 0.25],
@@ -244,10 +308,209 @@ test("an unset or disabled checkbox creates no graphics and requires no Monk's m
   context.controller.addTile(unset);
   context.move();
 
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
   assert.equal(context.primary.children.length, 2);
   assert.equal(context.controller.tiles.size, 0);
   assert.equal(context.canvas.app.view.style.cursor, "crosshair");
+});
+
+test("opted-in artwork appears without hovering and ignores illumination checks", () => {
+  const context = fixture();
+
+  context.canvas.visibility.testVisibility = () => {
+    throw new Error("Lighting-dependent visibility must not be used");
+  };
+  const tile = context.addTile();
+  context.flush();
+  const ui = context.controller._ui;
+  const sprite = ui.entries.get(tile).sprite;
+
+  assert.equal(ui.layer.visible, true);
+  assert.equal(sprite.visible, true);
+  assert.equal(sprite.texture, tile.mesh.texture);
+  assert.equal(tile.mesh.renderable, false);
+  assert.equal(context.frames.size, 0);
+
+  context.move();
+  assert.equal(context.controller._highlight.tile, tile);
+  assert.equal(ui.layer.mask, ui.clip);
+  assert.deepEqual(ui.clip.commands[1], [
+    "polygon",
+    0,
+    0,
+    500,
+    0,
+    500,
+    500,
+    0,
+    500,
+  ]);
+});
+
+test("the entire artwork and highlight share an LOS mask, not a center-point check", () => {
+  const context = fixture();
+  const tile = context.addTile();
+  const source = context.canvas.effects.visionSources.get("listener");
+
+  source.los = {
+    points: [0, 0, 100, 0, 100, 500, 0, 500],
+    contains: (x) => x < 100,
+  };
+  context.move(90, 100);
+
+  const ui = context.controller._ui;
+  assert.equal(ui.entries.get(tile).sprite.parent, ui.layer);
+  assert.equal(context.controller._highlight.border.parent, ui.layer);
+  assert.equal(context.controller._highlight.background.parent, ui.layer);
+  assert.equal(ui.layer.mask, ui.clip);
+
+  context.move(110, 100);
+  assert.equal(context.controller._highlight, null);
+
+  source.active = false;
+  context.controller.requestRefresh();
+  context.flush();
+  assert.equal(ui.layer.visible, false);
+  assert.equal(tile.mesh.renderable, false);
+});
+
+test("only active, non-preview, non-blinded vision sources on this level reveal artwork", () => {
+  const excludedSourceStates = [
+    { active: false },
+    { isPreview: true },
+    { isBlinded: true },
+    { level: {} },
+  ];
+
+  for (const change of excludedSourceStates) {
+    const context = fixture();
+    context.addTile();
+    Object.assign(context.canvas.effects.visionSources.get("listener"), change);
+    context.move();
+    assert.equal(context.controller._ui.layer.visible, false);
+    assert.equal(context.controller._highlight, null);
+  }
+});
+
+test("GM overview and scenes without token vision are unrestricted, but blinded GM vision is not", () => {
+  const context = fixture();
+
+  context.addTile();
+  context.game.user.isGM = true;
+  context.canvas.effects.visionSources.clear();
+  context.move();
+
+  assert.equal(context.controller._ui.layer.mask, null);
+  assert.equal(context.controller._ui.clip.renderable, false);
+  assert.ok(context.controller._highlight);
+
+  context.canvas.effects.visionSources.set("blind", {
+    active: true,
+    level: context.canvas.level,
+    isBlinded: true,
+  });
+  context.controller.requestRefresh();
+  context.flush();
+
+  assert.equal(context.controller._ui.layer.visible, false);
+  assert.equal(context.controller._highlight, null);
+
+  context.game.user.isGM = false;
+  context.canvas.scene.tokenVision = false;
+  context.controller.requestRefresh();
+  context.flush();
+
+  assert.equal(context.controller._ui.layer.mask, null);
+  assert.ok(context.controller._highlight);
+});
+
+test("texture transforms follow the native mesh and opting out restores native rendering", () => {
+  const context = fixture();
+  const tile = context.addTile();
+
+  tile.mesh.scale = vector(-2, 3);
+  tile.mesh.rotation = 0.75;
+  tile.mesh.tint = 0x123456;
+
+  context.flush();
+  const sprite = context.controller._ui.entries.get(tile).sprite;
+
+  assert.equal(sprite.scale.x, -2);
+  assert.equal(sprite.scale.y, 3);
+  assert.equal(sprite.rotation, 0.75);
+  assert.equal(sprite.tint, 0x123456);
+
+  tile.mesh.texture = { replacement: true };
+  context.controller.addTile(tile);
+  context.flush();
+  assert.equal(sprite.texture, tile.mesh.texture);
+
+  tile.document.enabled = false;
+  context.controller.addTile(tile);
+  assert.equal(tile.mesh.renderable, true);
+  assert.equal(sprite.destroyed, true);
+  assert.equal(tile.mesh.texture.replacement, true);
+
+  context.controller.destroy();
+});
+
+test("pointer movement reuses the LOS mask and does not refresh every tile image", () => {
+  const context = fixture();
+  context.addTile();
+  context.flush();
+  context.controller._ui.refresh = () => {
+    throw new Error(
+      "Pointer movement must not rebuild tile artwork or LOS polygons",
+    );
+  };
+  context.move();
+  context.move(101);
+  context.controller.clear();
+
+  assert.equal(context.controller._ui.layer.visible, true);
+  assert.equal(context.frames.size, 0);
+});
+
+test("a previously non-renderable mesh stays suppressed after opting out", () => {
+  const context = fixture();
+  const tile = context.addTile();
+
+  tile.mesh.renderable = false;
+  context.move();
+
+  assert.equal(context.controller._ui.entries.get(tile).sprite.visible, false);
+  assert.equal(context.controller._highlight, null);
+
+  tile.document.enabled = false;
+  context.controller.addTile(tile);
+  assert.equal(tile.mesh.renderable, false);
+});
+
+test("replacing a native mesh releases the old sprite and teardown restores the new mesh", () => {
+  const context = fixture();
+  const tile = context.addTile();
+  context.flush();
+  const original = tile.mesh;
+  const oldSprite = context.controller._ui.entries.get(tile).sprite;
+
+  tile.mesh = {
+    ...original,
+    parent: null,
+    renderable: true,
+    texture: { redrawn: true },
+  };
+  context.primary.removeChild(original);
+  context.primary.addChildAt(tile.mesh, 0);
+  context.controller.addTile(tile);
+  context.flush();
+
+  assert.equal(original.renderable, true);
+  assert.equal(oldSprite.destroyed, true);
+  assert.equal(tile.mesh.renderable, false);
+
+  context.controller.destroy();
+  assert.equal(tile.mesh.renderable, true);
+  assert.equal(context.controls.children.length, 0);
 });
 
 test("hover updates are coalesced, idle does not schedule further frames, and graphics are reused", () => {
@@ -269,10 +532,10 @@ test("hover updates are coalesced, idle does not schedule further frames, and gr
   context.flush();
   assert.equal(context.frames.size, 0);
 
-  const border = context.controls.children[0];
+  const border = hoverBorders(context)[0];
   context.move(101);
-  assert.equal(context.controls.children[0], border);
-  assert.equal(context.primary.children.length, 2);
+  assert.equal(hoverBorders(context)[0], border);
+  assert.equal(context.primary.children.length, 1);
 });
 
 test("rotation, anchors and UI scale affect both the hit test and frame geometry", () => {
@@ -290,7 +553,7 @@ test("rotation, anchors and UI scale affect both the hit test and frame geometry
   context.canvas.dimensions.uiScale = 2;
   context.move(90, 170);
 
-  const border = context.controls.children[0];
+  const border = hoverBorders(context)[0];
   assert.equal(border.angle, 90);
   assert.deepEqual([border.x, border.y], [100, 100]);
   assert.deepEqual(border.commands, [
@@ -299,7 +562,7 @@ test("rotation, anchors and UI scale affect both the hit test and frame geometry
   ]);
 
   context.move(170, 110);
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 });
 
 test("pan/zoom recalculates canvas coordinates even when the pointer is stationary", () => {
@@ -311,12 +574,12 @@ test("pan/zoom recalculates canvas coordinates even when the pointer is stationa
   });
 
   context.move(200, 200);
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context).length, 1);
 
   context.canvas.canvasCoordinatesFromClient = (point) => point;
   context.controller.requestRefresh();
   context.flush();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 });
 
 test("hidden, unseen, occluded, invisible, off-level and preview Tiles never expose a player highlight", () => {
@@ -325,7 +588,7 @@ test("hidden, unseen, occluded, invisible, off-level and preview Tiles never exp
       tile.document.hidden = true;
     },
     ({ canvas }) => {
-      canvas.visibility.testVisibility = () => false;
+      canvas.effects.visionSources.get("listener").los.contains = () => false;
     },
     ({ tile }) => {
       tile.occluded = true;
@@ -356,7 +619,7 @@ test("hidden, unseen, occluded, invisible, off-level and preview Tiles never exp
     const tile = context.addTile();
     configure({ ...context, tile });
     context.move();
-    assert.equal(context.controls.children.length, 0);
+    assert.equal(hoverBorders(context).length, 0);
   }
 });
 
@@ -366,16 +629,16 @@ test("paused players and other active layers suppress hover; GM pause matches na
   context.addTile();
   context.game.paused = true;
   context.move();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   context.game.user.isGM = true;
   context.move();
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context).length, 1);
 
   context.canvas.activeLayer = {};
   context.controller.requestRefresh();
   context.flush();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 });
 
 test("only the topmost enabled Tile is framed, using Foundry's native sort tuple", () => {
@@ -385,18 +648,14 @@ test("only the topmost enabled Tile is framed, using Foundry's native sort tuple
 
   upper.mesh.sort = 10;
   context.move();
-  assert.ok(
-    context.primary.getChildIndex(
-      context.primary.children.find((child) => child instanceof Graphics),
-    ) < context.primary.getChildIndex(upper.mesh),
-  );
+  assert.equal(context.controller._highlight.tile, upper);
 
   lower.document.shape.rotation = 15;
   lower.mesh.elevation = 20;
   context.controller.requestRefresh();
   context.flush();
-  assert.equal(context.controls.children[0].angle, 15);
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context)[0].angle, 15);
+  assert.equal(hoverBorders(context).length, 1);
 });
 
 test("moving, resizing, sorting or disabling the hovered Tile updates without another pointer move", () => {
@@ -409,7 +668,7 @@ test("moving, resizing, sorting or disabling the hovered Tile updates without an
 
   context.controller.addTile(tile);
   context.flush();
-  assert.deepEqual(context.controls.children[0].commands[1], [
+  assert.deepEqual(hoverBorders(context)[0].commands[1], [
     "rectangle",
     -32,
     -22,
@@ -417,25 +676,22 @@ test("moving, resizing, sorting or disabling the hovered Tile updates without an
     44,
     5,
   ]);
-  assert.equal(
-    context.primary.children.find((child) => child instanceof Graphics).sort,
-    25,
-  );
+  assert.equal(context.controller._highlight.tile, tile);
 
   tile.document.shape.x = 500;
   context.controller.addTile(tile);
   context.flush();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   tile.document.shape.x = 100;
   context.controller.addTile(tile);
   context.flush();
 
-  const border = context.controls.children[0];
+  const border = hoverBorders(context)[0];
   tile.document.enabled = false;
   context.controller.addTile(tile);
   context.flush();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
   assert.equal(border.destroyed, true);
 });
 
@@ -445,12 +701,12 @@ test("leaving the canvas, hovering UI or dragging clears graphics without consum
     const tile = context.addTile();
     context.move();
 
-    const border = context.controls.children[0];
+    const border = hoverBorders(context)[0];
     context.move(100, 100, extra);
 
     assert.equal(border.destroyed, true);
     assert.deepEqual(context.primary.children, [tile.mesh]);
-    assert.equal(context.controls.children.length, 0);
+    assert.equal(hoverBorders(context).length, 0);
     assert.equal(context.canvas.app.view.style.cursor, "crosshair");
   }
 });
@@ -461,7 +717,7 @@ test("deletion/teardown destroys only module graphics and cancels queued callbac
 
   context.move();
   context.controller.removeTile(tile);
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
   context.controller.destroy();
 
   assert.equal(context.controller.tiles.size, 0);
@@ -555,6 +811,7 @@ test("manifest is standalone and every declared module asset exists", async () =
 test("Foundry hooks wire pointer/visibility refresh and abort listeners across scenes", async () => {
   const context = fixture();
   const tile = context.addTile();
+  context.controller.destroy();
   const callbacks = new Map();
 
   globalThis.Hooks = { on: (hook, callback) => callbacks.set(hook, callback) };
@@ -589,35 +846,35 @@ test("Foundry hooks wire pointer/visibility refresh and abort listeners across s
 
   callbacks.get("canvasReady")();
   pointerMove();
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context).length, 1);
 
   context.game.paused = true;
   callbacks.get("pauseGame")();
   context.flush();
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   context.game.paused = false;
   callbacks.get("pauseGame")();
   context.flush();
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context).length, 1);
 
   window.dispatchEvent(new Event("blur"));
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   pointerMove();
   callbacks.get("canvasTearDown")();
   assert.deepEqual(context.primary.children, [tile.mesh]);
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   pointerMove();
   assert.equal(context.frames.size, 0);
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
 
   callbacks.get("canvasReady")();
   pointerMove();
-  assert.equal(context.controls.children.length, 1);
+  assert.equal(hoverBorders(context).length, 1);
 
   view.dispatchEvent(new Event("pointerleave"));
-  assert.equal(context.controls.children.length, 0);
+  assert.equal(hoverBorders(context).length, 0);
   callbacks.get("canvasTearDown")();
 });

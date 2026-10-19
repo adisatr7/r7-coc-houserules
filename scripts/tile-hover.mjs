@@ -1,3 +1,5 @@
+import { TileUI } from "./tile-ui.mjs";
+
 export const MODULE_ID = "r7-coc-houserules";
 export const HOVER_FLAG = "highlightOnHover";
 
@@ -6,7 +8,7 @@ export const HOVER_FLAG = "highlightOnHover";
 export const DOOR_HOVER_STYLE = Object.freeze({
   background: 0x000000,
   backgroundAlpha: 0.25,
-  border: 0xFF5500,
+  border: 0xff5500,
   borderAlpha: 0.8,
   borderWidth: 1,
   padding: 2,
@@ -14,9 +16,10 @@ export const DOOR_HOVER_STYLE = Object.freeze({
 });
 
 class TileHoverHighlight {
-  constructor(tile, canvas) {
+  constructor(tile, canvas, ui) {
     this.tile = tile;
     this.canvas = canvas;
+    this.ui = ui;
     this.background = new PIXI.Graphics();
     this.border = new PIXI.Graphics();
     this.background.eventMode = this.border.eventMode = "none";
@@ -25,8 +28,7 @@ class TileHoverHighlight {
 
   refresh() {
     const { shape } = this.tile.document;
-    const { mesh } = this.tile;
-    const { primary, controls, dimensions } = this.canvas;
+    const { dimensions } = this.canvas;
     const scale = dimensions.uiScale;
     const style = DOOR_HOVER_STYLE;
     const padding = style.padding * scale;
@@ -39,10 +41,17 @@ class TileHoverHighlight {
     ];
     const geometryKey = rectangle.join(",");
     if (this._geometryKey !== geometryKey) {
-      this.background.clear().beginFill(style.background, style.backgroundAlpha)
-        .drawRoundedRect(...rectangle).endFill();
-      this.border.clear().lineStyle(style.borderWidth * scale, style.border, style.borderAlpha)
+      this.background
+        .clear()
+        .beginFill(style.background, style.backgroundAlpha)
+        .drawRoundedRect(...rectangle)
+        .endFill();
+
+      this.border
+        .clear()
+        .lineStyle(style.borderWidth * scale, style.border, style.borderAlpha)
         .drawRoundedRect(...rectangle);
+
       this._geometryKey = geometryKey;
     }
 
@@ -51,24 +60,14 @@ class TileHoverHighlight {
       graphic.angle = shape.rotation;
     }
 
-    // Put the background BEHIND the original artwork, not over it. Keep its
-    // native sort tuple so Foundry's primary sort keeps the pair together.
-    let sortChanged = false;
-    for (const key of ["elevation", "sortLayer", "sort", "zIndex"]) {
-      if (this.background[key] !== mesh[key]) {
-        this.background[key] = mesh[key];
-        sortChanged = true;
-      }
-    }
-    if (this.background.parent !== primary) {
-      primary.addChildAt(this.background, primary.getChildIndex(mesh));
-    }
-    if (sortChanged) {
-      primary.sortDirty = true;
-    }
-    if (this.border.parent !== controls) {
-      controls.addChildAt(this.border, 0);
-    }
+    const layer = this.ui.layer;
+    const sprite = this.ui.entries.get(this.tile).sprite;
+
+    this.background.parent?.removeChild(this.background);
+    this.border.parent?.removeChild(this.border);
+
+    layer.addChildAt(this.background, layer.getChildIndex(sprite));
+    layer.addChildAt(this.border, layer.getChildIndex(sprite) + 1);
   }
 
   destroy() {
@@ -86,16 +85,22 @@ class TileHoverHighlight {
  * coalesce pointer/visibility updates; never start a permanent animation loop.
  */
 export class TileHoverController {
-  constructor(canvas, game, {
-    requestFrame = (callback) => requestAnimationFrame(callback),
-    cancelFrame = (frame) => cancelAnimationFrame(frame),
-  } = {}) {
+  constructor(
+    canvas,
+    game,
+    {
+      requestFrame = (callback) => requestAnimationFrame(callback),
+      cancelFrame = (frame) => cancelAnimationFrame(frame),
+    } = {},
+  ) {
     Object.assign(this, { canvas, game, requestFrame, cancelFrame });
     this.tiles = new Map();
     this._frame = null;
     this._clientPoint = null;
     this._highlight = null;
     this._previousCursor = null;
+    this._ui = new TileUI(canvas, game);
+    this._uiDirty = false;
   }
 
   addTile(tile) {
@@ -106,6 +111,7 @@ export class TileHoverController {
       this.tiles.set(tile.id, tile);
     } else {
       this.tiles.delete(tile.id);
+      this._ui.remove(tile);
     }
     this.requestRefresh();
   }
@@ -114,7 +120,10 @@ export class TileHoverController {
     if (this.tiles.get(tile.id) !== tile) {
       return;
     }
+
     this.tiles.delete(tile.id);
+    this._ui.remove(tile);
+
     if (this._highlight?.tile === tile) {
       this._clearHighlight();
     }
@@ -127,12 +136,17 @@ export class TileHoverController {
       return;
     }
     this._clientPoint = { x: event.clientX, y: event.clientY };
-    this.requestRefresh();
+    this.requestRefresh(false);
   }
 
-  requestRefresh() {
-    if (!this._clientPoint || this._frame !== null
-      || (!this.tiles.size && !this._highlight)) {
+  requestRefresh(refreshUI = true) {
+    this._uiDirty ||= refreshUI;
+
+    if (
+      (!this._clientPoint && !this._uiDirty) ||
+      this._frame !== null ||
+      (!this.tiles.size && !this._highlight)
+    ) {
       return;
     }
     this._frame = this.requestFrame(() => {
@@ -142,7 +156,7 @@ export class TileHoverController {
   }
 
   clear() {
-    if (this._frame !== null) {
+    if (this._frame !== null && !this._uiDirty) {
       this.cancelFrame(this._frame);
       this._frame = null;
     }
@@ -152,13 +166,27 @@ export class TileHoverController {
 
   destroy() {
     this.clear();
+    if (this._frame !== null) {
+      this.cancelFrame(this._frame);
+      this._frame = null;
+    }
+    this._ui.destroy();
     this.tiles.clear();
   }
 
   _refresh() {
     const canvas = this.canvas;
-    if (!canvas.ready || canvas.activeLayer !== canvas.tokens
-      || (this.game.paused && !this.game.user.isGM)) {
+    if (this._uiDirty) {
+      this._ui.refresh(this.tiles);
+      this._uiDirty = false;
+    }
+
+    if (
+      !canvas.ready ||
+      canvas.activeLayer !== canvas.tokens ||
+      !this._clientPoint ||
+      (this.game.paused && !this.game.user.isGM)
+    ) {
       this._clearHighlight();
       return;
     }
@@ -177,7 +205,7 @@ export class TileHoverController {
     if (selected !== this._highlight?.tile) {
       this._clearHighlight();
       if (selected) {
-        this._highlight = new TileHoverHighlight(selected, canvas);
+        this._highlight = new TileHoverHighlight(selected, canvas, this._ui);
         this._previousCursor = canvas.app.view.style.cursor;
         canvas.app.view.style.cursor = "pointer";
       }
@@ -188,19 +216,28 @@ export class TileHoverController {
 
   _canHighlight(tile, point) {
     const { document, mesh } = tile;
-    if (tile.destroyed || tile.isPreview || !tile.visible || !tile.isVisible
-      || document.parent !== this.canvas.scene
-      || document.getFlag(MODULE_ID, HOVER_FLAG) !== true
-      || !document.includedInLevel(this.canvas.level)
-      || !mesh || mesh.destroyed || !mesh.visible || mesh.alpha <= 0
-      || mesh.parent !== this.canvas.primary || tile.occluded
-      || (document.hidden && !this.game.user.isGM)
-      || !document.shape.testPoint(point)) {
+    if (
+      tile.destroyed ||
+      tile.isPreview ||
+      !tile.visible ||
+      !tile.isVisible ||
+      document.parent !== this.canvas.scene ||
+      document.getFlag(MODULE_ID, HOVER_FLAG) !== true ||
+      !this._ui.entries.get(tile)?.sprite.visible ||
+      !document.includedInLevel(this.canvas.level) ||
+      !mesh ||
+      mesh.destroyed ||
+      !mesh.visible ||
+      mesh.alpha <= 0 ||
+      mesh.parent !== this.canvas.primary ||
+      tile.occluded ||
+      (document.hidden && !this.game.user.isGM) ||
+      !document.shape.testPoint(point)
+    ) {
       return false;
     }
 
-    // The interface border bypasses fog, so never draw it at an unseen point.
-    return this.canvas.visibility.testVisibility([point], { tolerance: 0 });
+    return this._ui.contains(point);
   }
 
   _isAbove(tile, other) {
