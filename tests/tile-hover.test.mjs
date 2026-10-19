@@ -533,7 +533,7 @@ test("manifest is standalone and every declared module asset exists", async () =
   );
   assert.equal(manifest.id, MODULE_ID);
   assert.equal(manifest.authors[0].name, "reflection77");
-  assert.equal(manifest.socket, undefined);
+  assert.equal(manifest.socket, true);
   assert.equal(manifest.relationships, undefined);
 
   for (const path of [
@@ -613,7 +613,6 @@ test("Foundry hooks wire pointer/visibility refresh and abort listeners across s
   assert.equal(context.frames.size, 0);
   assert.equal(context.controls.children.length, 0);
 
-  // A subsequent scene initialization gets exactly one new set of listeners
   callbacks.get("canvasReady")();
   pointerMove();
   assert.equal(context.controls.children.length, 1);

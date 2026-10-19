@@ -1,5 +1,8 @@
 import { TileHoverController } from "./tile-hover.mjs";
 import { addTileHoverOption } from "./tile-config.mjs";
+import { startAmmo } from "./ammo/integration.mjs";
+
+Hooks.on("ready", startAmmo);
 
 let hover = null;
 let listeners = null;

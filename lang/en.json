@@ -1,5 +1,102 @@
 {
   "r7-coc-houserules": {
+    "ammo": {
+      "title": "R7 Ammo System",
+      "configuration": "Configuration",
+      "reloadTooltip": "Left-click: reload a magazine. Right-click: unload the magazine.",
+      "internalReloadTooltip": "Left-click: fill the internal magazine from loose rounds. Right-click: eject all rounds.",
+      "reloadDialog": {
+        "title": "Empty Magazine",
+        "content": "The current magazine is empty. Would you like to reload?",
+        "internalContent": "The internal magazine is empty. Would you like to reload from loose ammunition?"
+      },
+      "attackDialog": {
+        "label": "Additional dice",
+        "penalty": "Penalty dice (-2)",
+        "bonus": "Bonus dice (+2)",
+        "roll": "Roll"
+      },
+      "reloadedChat": "{user} has reloaded {weapon}.",
+      "fields": {
+        "enabled": "Enable R7 Ammo System",
+        "role": "Item role",
+        "magazineType": "Magazine type ID",
+        "reloadType": "Reload type",
+        "cartridgeType": "Cartridge type ID",
+        "capacity": "Magazine capacity",
+        "streamlinedAttacks": "Streamlined attacks",
+        "roundsPerAttack": "Rounds per attack",
+        "magazine": "Available magazines",
+        "rounds": "Loose ammunition",
+        "amount": "Rounds to transfer"
+      },
+      "roles": {
+        "magazine": "Magazine",
+        "rounds": "Loose rounds"
+      },
+      "reloadTypes": {
+        "detachable": "Detachable magazine",
+        "internal": "Internal magazine"
+      },
+      "actions": {
+        "save": "Save R7 Configuration",
+        "insert": "Insert Magazine",
+        "reload": "Reload",
+        "eject": "Eject Magazine",
+        "load": "Load Rounds",
+        "fill": "Fill Magazine",
+        "unload": "Eject Rounds"
+      },
+      "loaded": "Loaded: {magazine} — {count}/{capacity}",
+      "noInserted": "No magazine inserted.",
+      "magazineCount": "Rounds: {count}/{capacity}",
+      "insertedIn": "Inserted in: {weapon}",
+      "notices": {
+        "reloadedInternal": "{weapon} reloaded: {count}/{capacity} rounds.",
+        "noRounds": "{weapon}: no compatible loose ammunition available.",
+        "reloaded": "{weapon} reloaded — {count}/{capacity} rounds ({magazine}).",
+        "noMagazine": "{weapon}: no loaded compatible magazine available.",
+        "cleanupFailed": "R7 Ammo: the transfer succeeded, but an empty ammunition stack could not be deleted. Its quantity remains zero."
+      },
+      "errors": {
+        "invalidCount": "Enter a non-negative whole round count, or a positive count for transfers.",
+        "invalidType": "Type IDs must use lowercase letters, numbers, dots, underscores or hyphens (1–64 characters).",
+        "permission": "You must own this actor or item to use R7 Ammo.",
+        "blocked": "R7 Ammo is blocked for this actor after a failed recovery. Ask the GM to audit its ammunition before clearing the ammoBlocked flag.",
+        "missingItem": "The requested inventory item no longer exists.",
+        "invalidOperation": "Invalid R7 Ammo operation.",
+        "writeFailed": "The ammunition transfer failed and its previous counts were restored. No automatic retry was made.",
+        "invalidConfiguration": "Invalid R7 Ammo configuration.",
+        "ejectFirst": "Eject the magazine before changing configuration, copying, transferring or deleting this item.",
+        "unloadFirst": "Eject all rounds before reconfiguring this.",
+        "rangedOnly": "R7 Ammo is supported only on ranged weapons.",
+        "emptyNativeFirst": "Empty this weapon's native ammunition counter before enabling R7 Ammo. Native ammunition is not converted into inventory items.",
+        "invalidRole": "Choose Magazine or Loose rounds for this item.",
+        "singleMagazine": "Each magazine must be a separate inventory item with quantity 1.",
+        "invalidMagazine": "This magazine has an invalid quantity, capacity or round count.",
+        "brokenLink": "The weapon and magazine data do not agree. Stop using the weapon and ask the GM to inspect the linked items.",
+        "incompatibleRounds": "These rounds do not match the magazine's cartridge type.",
+        "notEnoughSpaceOrRounds": "There are not enough loose rounds or enough free space in the magazine.",
+        "notEnoughRounds": "There are not enough rounds in the magazine.",
+        "missingTemplate": "The magazine has no ammunition metadata for recovering its rounds.",
+        "incompatibleMagazine": "This magazine does not match the weapon's magazine type.",
+        "alreadyInserted": "This magazine is already inserted in a weapon.",
+        "notManaged": "This weapon has not opted into R7 Ammo.",
+        "noInsertedMagazine": "Insert a compatible magazine before firing.",
+        "managedCounter": "Use the R7 Ammo controls for managed items. Native refill, direct counter edits and direct R7 flag edits are disabled.",
+        "unsupportedSystem": "This CoC7 version does not expose the expected weapon ammo methods. R7 Ammo could not be started.",
+        "unsupportedAttack": "This CoC7 version does not expose Actor.runRoll. Streamlined attacks are unavailable.",
+        "missingWeaponSkill": "Assign a valid primary skill to this weapon before attacking.",
+        "attackInProgress": "This weapon is already making an attack. Wait for it to finish.",
+        "attackResultFailed": "The attack failed after ammunition was spent. Check the chat and ammunition counts before retrying; spent rounds were not refunded.",
+        "disregardAmmo": "Disable CoC7's Disregard Ammo count setting before firing R7-managed weapons.",
+        "noGM": "A connected GM is required for R7 Ammo operations.",
+        "inventoryOnly": "Put this item in an actor's inventory before loading, unloading or using it.",
+        "timeout": "The GM did not acknowledge the operation. Check the current counts before trying again; it may already have completed.",
+        "disconnected": "The R7 Ammo connection closed. Check the current counts before retrying.",
+        "unexpected": "An unexpected R7 Ammo error occurred. Check the console and current ammunition counts before retrying."
+      }
+    },
     "tileHover": {
       "legend": "R7 Tile Interaction",
       "label": "Highlight on Hover"

@@ -1,7 +1,7 @@
 {
   "id": "r7-coc-houserules",
   "title": "R7 CoC Houserules",
-  "description": "Campaign conveniences for Call of Cthulhu. Adds opt-in, client-local Tile hover highlights.",
+  "description": "Campaign conveniences for Call of Cthulhu: opt-in Tile hover highlights and itemized R7 Ammo.",
   "version": "0.1.0",
   "authors": [{ "name": "reflection77" }],
   "compatibility": {
@@ -9,6 +9,7 @@
     "verified": "14.367"
   },
   "esmodules": ["scripts/main.mjs"],
+  "socket": true,
   "languages": [
     {
       "lang": "en",
