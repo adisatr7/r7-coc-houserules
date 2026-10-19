@@ -1,0 +1,92 @@
+name: Test and release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: Tests and syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' source_file; do
+            node --check "$source_file"
+          done < <(find scripts tests -type f -name '*.mjs' -print0)
+
+      - name: Run tests
+        run: npm test
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build release assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Use a stable version tag such as v1.0.0."
+            exit 1
+          fi
+          jq -e --arg version "$VERSION" \
+            '.id == "r7-coc-houserules" and .version == $version' module.json
+
+          URL="https://github.com/$GITHUB_REPOSITORY"
+          MANIFEST="$URL/releases/latest/download/module.json"
+          DOWNLOAD="$URL/releases/download/$RELEASE_TAG/r7-coc-houserules.zip"
+          mkdir -p dist
+          jq --arg url "$URL" --arg manifest "$MANIFEST" --arg download "$DOWNLOAD" \
+            '. + {url: $url, manifest: $manifest, download: $download}' \
+            module.json > dist/module.json
+          cp -R scripts lang dist/
+          (cd dist && zip -r ../r7-coc-houserules.zip module.json scripts lang)
+          unzip -t r7-coc-houserules.zip
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            dist/module.json r7-coc-houserules.zip \
+            --draft --verify-tag --title "$RELEASE_TAG" --generate-notes
+          gh release edit "$RELEASE_TAG" --draft=false
